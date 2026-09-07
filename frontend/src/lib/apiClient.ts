@@ -113,7 +113,7 @@ interface RequestOptions {
   requiresAuth?: boolean;
 }
 
-async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+async function apiRequestRaw(path: string, options: RequestOptions = {}): Promise<any> {
   const { method = 'GET', body, requiresAuth = true } = options;
 
   const headers: Record<string, string> = {
@@ -147,7 +147,7 @@ async function apiRequest<T>(path: string, options: RequestOptions = {}): Promis
   // Caso especial: 204 No Content no trae cuerpo, así que no intentamos
   // parsear JSON (fallaría).
   if (response.status === 204) {
-    return undefined as T;
+    return undefined;
   }
 
   const rawText = await response.text();
@@ -195,9 +195,28 @@ async function apiRequest<T>(path: string, options: RequestOptions = {}): Promis
     );
   }
 
-  // Caso exitoso: { success: true, data: {...} }
+  // Caso exitoso: llega completo, { success: true, data: {...}, meta?: {...} }
+  return json;
+}
+
+async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const json = await apiRequestRaw(path, options);
+  if (json === undefined) return undefined as T;
   const successResponse = json as ApiSuccessResponse<T>;
   return successResponse.data;
+}
+
+/**
+ * Igual que apiRequest, pero además devuelve el "meta" de la respuesta
+ * (por ahora solo lo necesita listUsers(), para la paginación que trae
+ * UserController::index()).
+ */
+async function apiRequestWithMeta<T>(
+  path: string,
+  options: RequestOptions = {}
+): Promise<{ data: T; meta: any }> {
+  const json = await apiRequestRaw(path, options);
+  return { data: json.data, meta: json.meta };
 }
 
 // ── Tipos del dominio (según lo que devuelve AuthController.php) ───────
@@ -227,6 +246,7 @@ export interface LoginResponse {
 export interface Organization {
   id: string;
   name: string;
+  isActive: boolean;
   [key: string]: unknown;
 }
 
@@ -234,6 +254,7 @@ export interface HealthCenter {
   id: string;
   name: string;
   organizationId: string;
+  isActive: boolean;
   [key: string]: unknown;
 }
 
@@ -241,6 +262,7 @@ export interface Unit {
   id: string;
   name: string;
   healthCenterId: string;
+  isActive: boolean;
   [key: string]: unknown;
 }
 
@@ -302,22 +324,37 @@ export async function logout(): Promise<void> {
 }
 
 // ── Funciones de Catálogos (Módulo listo: organizations, health-centers, units) ──
+//
+// El backend de Greudy y Camila ahora trae CRUD completo para las tres
+// entidades: Crear, Leer, Actualizar, Desactivar (soft delete: no borra la
+// fila, solo pone isActive=false) y Restaurar. Confirmamos el mismo patrón
+// exacto en OrganizationController.php, HealthCenterController.php y
+// UnitController.php antes de escribir esto.
 
-export async function listOrganizations(): Promise<Organization[]> {
-  return apiRequest<Organization[]>('/organizations', { method: 'GET' });
+/**
+ * Por defecto el backend solo devuelve las activas ("status=active"). Con
+ * status='all' traemos también las desactivadas, para poder mostrarlas
+ * tachadas en la lista y ofrecer el botón de "Restaurar".
+ */
+export async function listOrganizations(status: 'active' | 'inactive' | 'all' = 'active'): Promise<Organization[]> {
+  return apiRequest<Organization[]>(`/organizations?status=${status}`, { method: 'GET' });
 }
 
-export async function listHealthCenters(): Promise<HealthCenter[]> {
-  return apiRequest<HealthCenter[]>('/health-centers', { method: 'GET' });
+export async function listHealthCenters(status: 'active' | 'inactive' | 'all' = 'active'): Promise<HealthCenter[]> {
+  return apiRequest<HealthCenter[]>(`/health-centers?status=${status}`, { method: 'GET' });
 }
 
 /**
  * Trae las unidades de un centro de salud específico, o todas si no se
  * pasa healthCenterId. El backend soporta filtrar con este query param.
  */
-export async function listUnits(healthCenterId?: string): Promise<Unit[]> {
-  const query = healthCenterId ? `?healthCenterId=${healthCenterId}` : '';
-  return apiRequest<Unit[]>(`/units${query}`, { method: 'GET' });
+export async function listUnits(
+  healthCenterId?: string,
+  status: 'active' | 'inactive' | 'all' = 'active'
+): Promise<Unit[]> {
+  const params = new URLSearchParams({ status });
+  if (healthCenterId) params.set('healthCenterId', healthCenterId);
+  return apiRequest<Unit[]>(`/units?${params.toString()}`, { method: 'GET' });
 }
 
 // ── Función de Registro de Usuarios (Módulo B) ──────────────────────────
@@ -383,4 +420,169 @@ export async function createUnit(name: string, healthCenterId: string): Promise<
     method: 'POST',
     body: { name, healthCenterId },
   });
+}
+
+// ── Actualizar catálogos ─────────────────────────────────────────────────
+
+export async function updateOrganization(id: string, name: string): Promise<Organization> {
+  return apiRequest<Organization>(`/organizations/${id}`, {
+    method: 'PUT',
+    body: { name },
+  });
+}
+
+export async function updateHealthCenter(id: string, name: string): Promise<HealthCenter> {
+  return apiRequest<HealthCenter>(`/health-centers/${id}`, {
+    method: 'PUT',
+    body: { name },
+  });
+}
+
+export async function updateUnit(id: string, name: string): Promise<Unit> {
+  return apiRequest<Unit>(`/units/${id}`, {
+    method: 'PUT',
+    body: { name },
+  });
+}
+
+// ── Desactivar catálogos (soft delete) ──────────────────────────────────
+//
+// Ninguno de los tres borra la fila de la base de datos: el backend solo
+// marca isActive=false. Por eso el tipo de retorno trae isActive, no un
+// simple "borrado con éxito".
+
+export async function deactivateOrganization(id: string): Promise<{ id: string; isActive: boolean }> {
+  return apiRequest(`/organizations/${id}`, { method: 'DELETE' });
+}
+
+export async function deactivateHealthCenter(id: string): Promise<{ id: string; isActive: boolean }> {
+  return apiRequest(`/health-centers/${id}`, { method: 'DELETE' });
+}
+
+export async function deactivateUnit(id: string): Promise<{ id: string; isActive: boolean }> {
+  return apiRequest(`/units/${id}`, { method: 'DELETE' });
+}
+
+// ── Restaurar catálogos ──────────────────────────────────────────────────
+
+export async function restoreOrganization(id: string): Promise<{ id: string; isActive: boolean }> {
+  return apiRequest(`/organizations/${id}/restore`, { method: 'PATCH' });
+}
+
+export async function restoreHealthCenter(id: string): Promise<{ id: string; isActive: boolean }> {
+  return apiRequest(`/health-centers/${id}/restore`, { method: 'PATCH' });
+}
+
+export async function restoreUnit(id: string): Promise<{ id: string; isActive: boolean }> {
+  return apiRequest(`/units/${id}/restore`, { method: 'PATCH' });
+}
+
+// ── Estadísticas del panel de administración ────────────────────────────
+//
+// Revisamos AdminStatsController.php: las 3 cifras se calculan en vivo en
+// el servidor (usuarios activos del propio centro, peticiones a la API
+// contadas en caché, y cobertura real de auditoría calculada por reflexión
+// de PHP sobre qué modelos tienen el observador de auditoría conectado).
+// Ninguna de las tres está escrita a mano ni en el backend ni acá.
+
+export interface AdminStats {
+  activeUsers: number;
+  apiRequests: number;
+  auditCoverage: number;
+}
+
+export async function fetchAdminStats(): Promise<AdminStats> {
+  return apiRequest<AdminStats>('/admin/stats', { method: 'GET' });
+}
+
+// ── Configuración de seguridad ───────────────────────────────────────────
+//
+// Revisamos SecuritySettingController.php: el único campo real hoy es
+// ctaMaxAttempts (cuántos intentos tiene un paciente para canjear su
+// código de acceso temporal antes de bloquearse). Es exclusivo de
+// admin_institucional — super_admin no tiene centro asignado, así que
+// este endpoint no aplica para ese rol.
+
+export interface SecuritySettings {
+  id: string;
+  healthCenterId: string;
+  ctaMaxAttempts: number;
+}
+
+export async function fetchSecuritySettings(): Promise<SecuritySettings> {
+  return apiRequest<SecuritySettings>('/security-settings', { method: 'GET' });
+}
+
+export async function updateSecuritySettings(ctaMaxAttempts: number): Promise<SecuritySettings> {
+  return apiRequest<SecuritySettings>('/security-settings', {
+    method: 'PUT',
+    body: { ctaMaxAttempts },
+  });
+}
+
+// ── CRUD completo de Usuarios ─────────────────────────────────────────────
+//
+// registerUser() (más arriba) ya cubre Crear. Estas funciones completan
+// Leer, Actualizar y Desactivar/Restaurar, revisando el mismo patrón real
+// de UserController.php:
+// - Un admin_institucional solo ve/edita usuarios de su propio centro; el
+//   backend lo filtra solo, nosotras no repetimos esa lógica acá.
+// - Nadie puede desactivarse a sí mismo, ni cambiar su propio rol — si se
+//   intenta, el backend lo rechaza y mostramos ese mensaje tal cual.
+
+export interface UserListItem {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  organizationId: string | null;
+  healthCenterId: string | null;
+  unitId: string | null;
+  isActive: boolean;
+}
+
+export interface PaginatedUsers {
+  users: UserListItem[];
+  pagination: {
+    total: number;
+    count: number;
+    perPage: number;
+    currentPage: number;
+    lastPage: number;
+  };
+}
+
+/**
+ * apiRequest() ya desenvuelve el "data" de la respuesta, pero acá también
+ * necesitamos el "meta" (la paginación), que normalmente no usamos. Por
+ * eso esta función hace la petición un poco distinto a las demás: llama a
+ * apiRequestWithMeta en vez de apiRequest.
+ */
+export async function listUsers(page = 1): Promise<PaginatedUsers> {
+  const result = await apiRequestWithMeta<UserListItem[]>(`/users?page=${page}`, { method: 'GET' });
+  return {
+    users: result.data,
+    pagination: result.meta.pagination,
+  };
+}
+
+export interface UpdateUserPayload {
+  name?: string;
+  email?: string;
+  role?: UserRole;
+}
+
+export async function updateUser(id: string, payload: UpdateUserPayload): Promise<UserListItem> {
+  return apiRequest<UserListItem>(`/users/${id}`, {
+    method: 'PUT',
+    body: payload,
+  });
+}
+
+export async function deactivateUser(id: string): Promise<{ id: string; isActive: boolean }> {
+  return apiRequest(`/users/${id}`, { method: 'DELETE' });
+}
+
+export async function restoreUser(id: string): Promise<{ id: string; isActive: boolean }> {
+  return apiRequest(`/users/${id}/restore`, { method: 'PATCH' });
 }

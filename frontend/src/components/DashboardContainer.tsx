@@ -23,7 +23,8 @@ import {
   ShieldAlert,
   Clock,
   Menu,
-  X
+  X,
+  Crown
 } from 'lucide-react';
 
 interface DashboardContainerProps {
@@ -77,17 +78,23 @@ export const DashboardContainer: React.FC<DashboardContainerProps> = ({
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  // Sidebar navigation lists
+  // Sidebar navigation lists. Agregamos super_admin acá para que la lista
+  // de navegación quede completa junto a los demás roles — visualmente
+  // consistente, aunque el cambio real de rol siempre se hace por login,
+  // no desde este botón (ver nota en App.tsx sobre por qué sacamos el
+  // simulador de roles).
   const sidebarItems = [
+    { role: 'super_admin' as UserRole, label: 'Super Admin', icon: Crown },
+    { role: 'admin_institucional' as UserRole, label: 'Administración', icon: ShieldCheck },
     { role: 'admision' as UserRole, label: 'Admisión', icon: Users },
     { role: 'categorizacion' as UserRole, label: 'Categorización', icon: Layers },
     { role: 'medico' as UserRole, label: 'Consulta Médica', icon: Heart },
-    { role: 'admin_institucional' as UserRole, label: 'Administración', icon: ShieldCheck },
     { role: 'paciente' as UserRole, label: 'Portal Paciente', icon: Smile }
   ];
 
   const getRoleLabel = (role: UserRole) => {
     switch (role) {
+      case 'super_admin': return 'Super Administrador';
       case 'admin_institucional': return 'Administrador TI';
       case 'admision': return 'Admisión / Ventanilla';
       case 'categorizacion': return 'Categorización (TENS)';
@@ -268,7 +275,7 @@ export const DashboardContainer: React.FC<DashboardContainerProps> = ({
               </div>
             </div>
           ) : (
-            userRole !== 'admin_institucional' && (
+            userRole !== 'admin_institucional' && userRole !== 'super_admin' && (
               <div className="p-4 bg-brand-yellow-light border border-brand-yellow/20 rounded-xl text-xs font-semibold text-brand-yellow-dark flex items-center gap-2 mb-6">
                 <ShieldAlert className="w-4 h-4 animate-bounce" />
                 <span>
@@ -280,7 +287,13 @@ export const DashboardContainer: React.FC<DashboardContainerProps> = ({
 
           {/* ACTIVE ROLE DESKTOPS SWITCHER */}
           <div id="active-clinical-desktop">
-            {userRole === 'admin_institucional' && (
+            {/* super_admin reutiliza el mismo panel que admin_institucional:
+                ambos administran la plataforma, solo que con distinto
+                alcance (super_admin ve/gestiona TODAS las organizaciones y
+                centros; admin_institucional solo el suyo). Esa diferencia
+                de alcance ya la aplica el backend con sus Policies — el
+                componente visual no necesita duplicarse. */}
+            {(userRole === 'admin_institucional' || userRole === 'super_admin') && (
               <DashboardAdmin user={{ name: 'Admin', email: 'admin@senavida.cl' }} highContrast={highContrast} />
             )}
 

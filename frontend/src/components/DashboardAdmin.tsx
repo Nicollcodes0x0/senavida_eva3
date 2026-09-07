@@ -6,9 +6,12 @@
 import React, { useState } from 'react';
 import { mockPictograms } from '../data/mockData';
 import { Pictogram } from '../types';
-import { ShieldCheck, Users, Eye, History, Database, Settings, ToggleLeft, ToggleRight, Plus, Search, HelpCircle } from 'lucide-react';
+import { Eye, History, Settings, ToggleLeft, ToggleRight, Plus, Search, HelpCircle } from 'lucide-react';
 import { UserRegistrationForm } from './UserRegistrationForm';
+import { UsersCrudTable } from './UsersCrudTable';
 import { CatalogManagementForm } from './CatalogManagementForm';
+import { CatalogCrudTable } from './CatalogCrudTable';
+import { AdminStatsPanel } from './AdminStatsPanel';
 
 interface DashboardAdminProps {
   user: { name: string; email: string; healthCenter?: string; unit?: string };
@@ -40,48 +43,28 @@ export const DashboardAdmin: React.FC<DashboardAdminProps> = ({ user, highContra
 
   return (
     <div className="space-y-6">
-      {/* Overview stats cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="p-4 bg-white rounded-xl border border-brand-border shadow-xs flex items-center gap-4">
-          <div className="w-11 h-11 rounded-lg bg-brand-light text-brand-primary flex items-center justify-center font-bold">
-            <Users className="w-5 h-5" />
-          </div>
-          <div>
-            <span className="text-[10px] text-brand-text-secondary uppercase font-bold block">Funcionarios Activos</span>
-            <span className="text-xl font-black text-brand-dark">42 Usuarios</span>
-          </div>
-        </div>
-
-        <div className="p-4 bg-white rounded-xl border border-brand-border shadow-xs flex items-center gap-4">
-          <div className="w-11 h-11 rounded-lg bg-brand-success-light text-brand-turquoise-dark flex items-center justify-center font-bold">
-            <Database className="w-5 h-5" />
-          </div>
-          <div>
-            <span className="text-[10px] text-brand-text-secondary uppercase font-bold block">Consumo de la API</span>
-            <span className="text-xl font-black text-brand-dark">3.4K Peticiones</span>
-          </div>
-        </div>
-
-        <div className="p-4 bg-white rounded-xl border border-brand-border shadow-xs flex items-center gap-4">
-          <div className="w-11 h-11 rounded-lg bg-brand-coral-light/20 text-brand-coral-dark flex items-center justify-center font-bold">
-            <ShieldCheck className="w-5 h-5" />
-          </div>
-          <div>
-            <span className="text-[10px] text-brand-text-secondary uppercase font-bold block">Tasa de Auditoría</span>
-            <span className="text-xl font-black text-brand-dark">100% Repudiable</span>
-          </div>
-        </div>
-      </div>
+      {/* Antes esto eran 3 tarjetas con números escritos a mano
+          ("42 Usuarios", "3.4K Peticiones", "100% Repudiable"). Ahora
+          vienen de GET /admin/stats, calculados en vivo en el servidor. */}
+      <AdminStatsPanel highContrast={highContrast} />
 
       {/* Gestión de catálogos: organizaciones, centros de salud y
           unidades. Va antes del registro de funcionarios porque ese
           formulario depende de que existan estos datos primero. */}
       <CatalogManagementForm highContrast={highContrast} />
 
+      {/* Editar/Desactivar/Restaurar: completa Leer, Actualizar y Eliminar
+          de forma visible en pantalla, no solo por Postman. */}
+      <CatalogCrudTable highContrast={highContrast} />
+
       {/* Registro de funcionarios: esta sección conecta de verdad con
           POST /users. Antes esta pantalla no existía, y el contador de
           "Funcionarios Activos" de arriba era solo un número fijo. */}
       <UserRegistrationForm highContrast={highContrast} />
+
+      {/* Completa el CRUD de usuarios: Leer, Actualizar, Desactivar,
+          Restaurar — visible en pantalla, no solo por Postman. */}
+      <UsersCrudTable highContrast={highContrast} />
 
       {/* Main Grid: Left column (Pictogram manager), Right Column (Logs + Settings) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
